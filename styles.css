@@ -257,6 +257,11 @@ li .fa, li .fab {
     margin-left: auto;
 }
 
+.experience ol > li header p,
+.experience ol > li > span {
+    font-weight: 700;
+}
+
 .experience ol > li ul {
     padding-top: 0.5em;
 }
