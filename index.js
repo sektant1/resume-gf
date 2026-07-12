@@ -304,15 +304,24 @@
         document.title = authorName + " - " + summaryText;
     }
 
-    if (hasLocalStorage) {
-        restoreSavedPage();
-        addDocumentControls();
-        bindDocumentControls();
-        updateMetadata();
-        updateDownloadLink();
+    // On the GitHub Pages deploy, render a clean read-only resume:
+    // no edit controls, no GitHub star button, no contentEditable.
+    // Local (file://, localhost) keeps full editing/authoring.
+    var IS_DEPLOY = /(^|\.)sektant\.dev$/.test(location.hostname)
+        || location.hostname.slice(-10) === '.github.io'
+        || location.hostname === 'github.io';
+
+    if (!IS_DEPLOY) {
+        if (hasLocalStorage) {
+            restoreSavedPage();
+            addDocumentControls();
+            bindDocumentControls();
+            updateMetadata();
+            updateDownloadLink();
+        }
+        makeEditable();
+        requestAnimationFrame(bindMutationObserver);
     }
 
     updatePageNumbers();
-    makeEditable();
-    requestAnimationFrame(bindMutationObserver);
 })();
