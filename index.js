@@ -58,14 +58,6 @@
         return unescape(pageStr);
     }
 
-    function setDesignMode(mode) {
-        return function() {
-            if ('designMode' in document) {
-                document.designMode = mode;
-            }
-        };
-    }
-
     function restoreSavedPage() {
         var savedPage = getSavedPage();
         if (savedPage) {
@@ -125,6 +117,17 @@
                     window.print();
                 });
             },
+            'save': function(e) {
+                saveToIndex();
+            },
+            'exportText': function(e) {
+                var name = getFileBase();
+                downloadFile(buildPlainText(), name + '.txt', 'text/plain; charset=UTF-8');
+            },
+            'exportJson': function(e) {
+                var name = getFileBase();
+                downloadFile(buildJsonResume(), name + '.json', 'application/json; charset=UTF-8');
+            },
             'addPage': function(e) {
                 addPage();
                 updatePageNumbers();
@@ -152,15 +155,15 @@
             <div id="document-controls">
                 ${navBtn}
                 ${clearBtn}
-                <a role="button" data-action="save" title="Download as HTML" id="download-link" download>Save HTML</a>
-                <button data-action="print" title="Print">Print</button>
+                <button data-action="save" title="Save changes into index.html">Save</button>
+                <button data-action="print" title="Export as PDF">Export as PDF</button>
+                <button data-action="exportText" title="Export as ATS-friendly plain text">Export as Text</button>
+                <button data-action="exportJson" title="Export as JSON Resume">Export as JSON</button>
             </div>` + githubLink;
         var docControls = htmlToElement(docControlsStr);
         document.body.appendChild(docControls);
         return true;
     }
-
-    var downloadLink = null;
 
     function bindDocumentControls() {
         var actions = getButtonActions();
@@ -181,23 +184,219 @@
                 window.location.href = navLink.getAttribute('href');
             });
         }
-        downloadLink = docControls.querySelector('#download-link');
-        if (!USE_CONTENTEDITABLE && !IS_DEPLOY) {
-            downloadLink.addEventListener('mouseover', setDesignMode('off'));
-            downloadLink.addEventListener('mouseout', setDesignMode('on'));
-            downloadLink.addEventListener('touchstart', setDesignMode('off'));
-            downloadLink.addEventListener('touchend', setDesignMode('on'));
-        }
         return true;
     }
 
-    function updateDownloadLink() {
-        if (!downloadLink) return;
-        var pageContents = getPageContents();
-        var objectUrl = getDownloadLink(pageContents, 'text/html; charset=UTF-8');
-        downloadLink.setAttribute('href', objectUrl);
-        var fileName = /cover-letter\.html$/.test(location.pathname) ? 'cover-letter.html' : 'resume.html';
-        downloadLink.setAttribute('download', fileName); // file name
+    function getFileBase() {
+        return /cover-letter\.html$/.test(location.pathname) ? 'cover-letter' : 'resume';
+    }
+
+    // Trigger a browser download of arbitrary text data.
+    function downloadFile(data, fileName, type) {
+        var a = document.createElement('a');
+        a.href = getDownloadLink(data, type);
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    // Wrap the cleaned page contents in a full HTML document.
+    function buildFullDocument() {
+        return '<!DOCTYPE html>\n<html lang="en">\n' + getPageContents() + '\n</html>\n';
+    }
+
+    // Persisted file handle so repeated saves reuse the same target file.
+    var indexFileHandle = null;
+
+    // Save the current editor state back into index.html. Uses the File
+    // System Access API when available (localhost/https) to write the file
+    // in place; otherwise falls back to a download named index.html.
+    function saveToIndex() {
+        var html = buildFullDocument();
+        var fileName = getFileBase() === 'cover-letter' ? 'cover-letter.html' : 'index.html';
+        if (window.showSaveFilePicker) {
+            (async function() {
+                try {
+                    if (!indexFileHandle) {
+                        indexFileHandle = await window.showSaveFilePicker({
+                            suggestedName: fileName,
+                            types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }]
+                        });
+                    }
+                    var writable = await indexFileHandle.createWritable();
+                    await writable.write(html);
+                    await writable.close();
+                } catch (err) {
+                    if (err && err.name === 'AbortError') return; // user cancelled
+                    downloadFile(html, fileName, 'text/html; charset=UTF-8');
+                }
+            })();
+        } else {
+            downloadFile(html, fileName, 'text/html; charset=UTF-8');
+        }
+    }
+
+    // --- Recruiting export helpers (plain text + JSON Resume) ---
+
+    function textOf(el) {
+        return el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+    }
+
+    function buildPlainText() {
+        var L = [];
+        var name = textOf(document.querySelector('.fullname'));
+        var role = textOf(document.querySelector('.name h6'));
+        if (name) L.push(name);
+        if (role) L.push(role);
+        L.push('');
+
+        var contacts = document.querySelectorAll('.contact li');
+        if (contacts.length) {
+            L.push('CONTACT');
+            for (var i = 0; i < contacts.length; i++) L.push(textOf(contacts[i]));
+            L.push('');
+        }
+
+        var summary = textOf(document.querySelector('.summary p'));
+        if (summary) { L.push('SUMMARY'); L.push(summary); L.push(''); }
+
+        var skillSections = document.querySelectorAll('.skills');
+        for (var s = 0; s < skillSections.length; s++) {
+            var heading = textOf(skillSections[s].querySelector('h6')).toUpperCase();
+            var items = skillSections[s].querySelectorAll('li');
+            var vals = [];
+            for (var k = 0; k < items.length; k++) vals.push(textOf(items[k]));
+            if (heading && vals.length) { L.push(heading); L.push(vals.join(', ')); L.push(''); }
+        }
+
+        var expItems = document.querySelectorAll('.experience > ol > li');
+        if (expItems.length) {
+            L.push('EXPERIENCE');
+            for (var e = 0; e < expItems.length; e++) {
+                var item = expItems[e];
+                var title = textOf(item.querySelector('.sanserif'));
+                var time = textOf(item.querySelector('time'));
+                var company = textOf(item.querySelector('header + span, .sanserif ~ span'));
+                if (!company) {
+                    var spans = item.querySelectorAll('span');
+                    company = spans.length ? textOf(spans[0]) : '';
+                }
+                L.push(title + (time ? '  (' + time + ')' : ''));
+                if (company) L.push(company);
+                var bullets = item.querySelectorAll('ul li');
+                for (var b = 0; b < bullets.length; b++) L.push('  - ' + textOf(bullets[b]));
+                L.push('');
+            }
+        }
+
+        var eduItems = document.querySelectorAll('.education > ol > li');
+        if (eduItems.length) {
+            L.push('EDUCATION');
+            for (var d = 0; d < eduItems.length; d++) {
+                var edu = eduItems[d];
+                var degree = textOf(edu.querySelector('.sanserif'));
+                var eduTime = textOf(edu.querySelector('time'));
+                var school = textOf(edu.querySelector('span'));
+                L.push(degree + (eduTime ? '  (' + eduTime + ')' : ''));
+                if (school) L.push(school);
+                L.push('');
+            }
+        }
+
+        var langs = document.querySelectorAll('.references address');
+        if (langs.length) {
+            L.push('LANGUAGES');
+            for (var g = 0; g < langs.length; g++) L.push(textOf(langs[g]));
+            L.push('');
+        }
+
+        return L.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+    }
+
+    // Emit a JSON Resume (jsonresume.org) style document for ATS/recruiter parsing.
+    function buildJsonResume() {
+        function attr(sel, name) {
+            var el = document.querySelector(sel);
+            return el ? (el.getAttribute(name) || '') : '';
+        }
+        var email = attr('.contact a[href^="mailto:"]', 'href').replace(/^mailto:/, '');
+        var phone = attr('.contact a[href^="tel:"]', 'href').replace(/^tel:/, '');
+        var site = attr('.contact a[href^="http"]', 'href');
+
+        var profiles = [];
+        var gh = document.querySelector('.contact a[href*="github.com"]');
+        if (gh) profiles.push({ network: 'GitHub', url: gh.getAttribute('href') });
+
+        var location = '';
+        var locEl = document.querySelector('.contact li p');
+        if (locEl && locEl.querySelector('.fa-map-marker-alt')) location = textOf(locEl);
+
+        var basics = {
+            name: textOf(document.querySelector('.fullname')),
+            label: textOf(document.querySelector('.name h6')),
+            email: email,
+            phone: phone,
+            url: site,
+            summary: textOf(document.querySelector('.summary p')),
+            location: { address: location },
+            profiles: profiles
+        };
+
+        var work = [];
+        var expItems = document.querySelectorAll('.experience > ol > li');
+        for (var e = 0; e < expItems.length; e++) {
+            var item = expItems[e];
+            var spans = item.querySelectorAll('span');
+            var highlights = [];
+            var bullets = item.querySelectorAll('ul li');
+            for (var b = 0; b < bullets.length; b++) highlights.push(textOf(bullets[b]));
+            work.push({
+                position: textOf(item.querySelector('.sanserif')),
+                name: spans.length ? textOf(spans[0]) : '',
+                period: textOf(item.querySelector('time')),
+                highlights: highlights
+            });
+        }
+
+        var education = [];
+        var eduItems = document.querySelectorAll('.education > ol > li');
+        for (var d = 0; d < eduItems.length; d++) {
+            var edu = eduItems[d];
+            education.push({
+                studyType: textOf(edu.querySelector('.sanserif')),
+                institution: textOf(edu.querySelector('span')),
+                period: textOf(edu.querySelector('time'))
+            });
+        }
+
+        var skills = [];
+        var skillSections = document.querySelectorAll('.skills');
+        for (var s = 0; s < skillSections.length; s++) {
+            var kws = [];
+            var items = skillSections[s].querySelectorAll('li');
+            for (var k = 0; k < items.length; k++) kws.push(textOf(items[k]));
+            skills.push({ name: textOf(skillSections[s].querySelector('h6')), keywords: kws });
+        }
+
+        var languages = [];
+        var langs = document.querySelectorAll('.references address');
+        for (var g = 0; g < langs.length; g++) {
+            var parts = langs[g].innerHTML.split(/<br\s*\/?>/i);
+            languages.push({
+                language: (parts[0] || '').replace(/<[^>]*>/g, '').trim(),
+                fluency: (parts[1] || '').replace(/<[^>]*>/g, '').trim()
+            });
+        }
+
+        return JSON.stringify({
+            $schema: 'https://raw.githubusercontent.com/jsonresume/resume-schema/v1.0.0/schema.json',
+            basics: basics,
+            work: work,
+            education: education,
+            skills: skills,
+            languages: languages
+        }, null, 2) + '\n';
     }
 
     function bindMutationObserver() {
@@ -207,7 +406,6 @@
             requestAnimationFrame(function() {
                 savePage();
                 updateMetadata();
-                updateDownloadLink();
             });
         }
 
@@ -337,7 +535,6 @@
         addDocumentControls();
         bindDocumentControls();
         if (!IS_DEPLOY) updateMetadata();
-        updateDownloadLink();
     }
 
     if (!IS_DEPLOY) {
