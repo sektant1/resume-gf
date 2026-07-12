@@ -96,6 +96,7 @@ li .fa, li .fab {
     padding: 0.1618in 0 0.1618in 0.1618in;
     display: flex;
     flex-direction: column;
+    font-size: calc(1em - 2px);
 }
 
 #save > section:first-of-type > aside > section + section {
