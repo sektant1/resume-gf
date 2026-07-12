@@ -41,6 +41,13 @@
     var hasLocalStorage = supportsLocalStorage();
     var hasTemplate = supportsTemplate();
 
+    // True when served from the public deploy: render a read-only resume
+    // (Save HTML + Print only, no edit/clear controls, no GitHub star,
+    // no contentEditable). Local file:// keeps full authoring.
+    var IS_DEPLOY = /(^|\.)sektant\.dev$/.test(location.hostname)
+        || location.hostname.slice(-10) === '.github.io'
+        || location.hostname === 'github.io';
+
     function savePage() {
         localStorage.setItem('page', escape(document.getElementById('save').innerHTML));
     }
@@ -127,16 +134,20 @@
 
     function addDocumentControls() {
         if (!hasTemplate) return false;
+        // Clear draft (edit) button and GitHub star are authoring-only.
+        var clearBtn = IS_DEPLOY ? '' :
+            '<button data-action="clear" title="Remove saved draft">Clear draft</button>';
+        var githubLink = IS_DEPLOY ? '' :
+            `<div id="github-link">
+                <a class="github-button" href="https://github.com/Tombarr/html-resume-template" data-size="large" data-show-count="true" aria-label="Star Tombarr/html-resume-template on GitHub">Star</a>
+            </div>`;
         var docControlsStr =
             `<!-- Document control buttons-->
             <div id="document-controls">
-                <button data-action="clear" title="Remove saved draft">Clear draft</button>
+                ${clearBtn}
                 <a role="button" data-action="save" title="Download as HTML" id="download-link" download>Save HTML</a>
                 <button data-action="print" title="Print">Print</button>
-            </div>
-            <div id="github-link">     
-                <a class="github-button" href="https://github.com/Tombarr/html-resume-template" data-size="large" data-show-count="true" aria-label="Star Tombarr/html-resume-template on GitHub">Star</a>
-            </div>`;
+            </div>` + githubLink;
         var docControls = htmlToElement(docControlsStr);
         document.body.appendChild(docControls);
         return true;
@@ -155,7 +166,7 @@
             }
         }
         downloadLink = docControls.querySelector('#download-link');
-        if (!USE_CONTENTEDITABLE) {
+        if (!USE_CONTENTEDITABLE && !IS_DEPLOY) {
             downloadLink.addEventListener('mouseover', setDesignMode('off'));
             downloadLink.addEventListener('mouseout', setDesignMode('on'));
             downloadLink.addEventListener('touchstart', setDesignMode('off'));
@@ -304,21 +315,15 @@
         document.title = authorName + " - " + summaryText;
     }
 
-    // On the GitHub Pages deploy, render a clean read-only resume:
-    // no edit controls, no GitHub star button, no contentEditable.
-    // Local (file://, localhost) keeps full editing/authoring.
-    var IS_DEPLOY = /(^|\.)sektant\.dev$/.test(location.hostname)
-        || location.hostname.slice(-10) === '.github.io'
-        || location.hostname === 'github.io';
+    if (hasLocalStorage) {
+        if (!IS_DEPLOY) restoreSavedPage();
+        addDocumentControls();
+        bindDocumentControls();
+        if (!IS_DEPLOY) updateMetadata();
+        updateDownloadLink();
+    }
 
     if (!IS_DEPLOY) {
-        if (hasLocalStorage) {
-            restoreSavedPage();
-            addDocumentControls();
-            bindDocumentControls();
-            updateMetadata();
-            updateDownloadLink();
-        }
         makeEditable();
         requestAnimationFrame(bindMutationObserver);
     }

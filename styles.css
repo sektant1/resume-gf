@@ -151,7 +151,7 @@ li .fa, li .fab {
 /* Avatar */
 
 .avatar {
-    align-self: center;
+    align-self: flex-start;
 }
 
 .avatar img {
