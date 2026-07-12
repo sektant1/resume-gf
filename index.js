@@ -134,7 +134,13 @@
 
     function addDocumentControls() {
         if (!hasTemplate) return false;
-        // Clear draft (edit) button and GitHub star are authoring-only.
+        // Clear draft (edit) button, page navigation, and GitHub star are
+        // authoring-only (local file:// / localhost), hidden on deploy.
+        var isCover = /cover-letter\.html$/.test(location.pathname);
+        var navHref = isCover ? 'index.html' : 'cover-letter.html';
+        var navLabel = isCover ? 'Resume' : 'Cover Letter';
+        var navBtn = IS_DEPLOY ? '' :
+            `<a role="button" href="${navHref}" title="Go to ${navLabel}">${navLabel}</a>`;
         var clearBtn = IS_DEPLOY ? '' :
             '<button data-action="clear" title="Remove saved draft">Clear draft</button>';
         var githubLink = IS_DEPLOY ? '' :
@@ -144,6 +150,7 @@
         var docControlsStr =
             `<!-- Document control buttons-->
             <div id="document-controls">
+                ${navBtn}
                 ${clearBtn}
                 <a role="button" data-action="save" title="Download as HTML" id="download-link" download>Save HTML</a>
                 <button data-action="print" title="Print">Print</button>
@@ -180,7 +187,8 @@
         var pageContents = getPageContents();
         var objectUrl = getDownloadLink(pageContents, 'text/html; charset=UTF-8');
         downloadLink.setAttribute('href', objectUrl);
-        downloadLink.setAttribute('download', 'resume.html'); // file name
+        var fileName = /cover-letter\.html$/.test(location.pathname) ? 'cover-letter.html' : 'resume.html';
+        downloadLink.setAttribute('download', fileName); // file name
     }
 
     function bindMutationObserver() {
