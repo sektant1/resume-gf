@@ -73,7 +73,8 @@
     }
 
     // Clone HTML node, but remove extraneous elements and make read-only
-    function getPageContents() {
+    // Clone <html>, strip editor-only elements and contenteditable, return node.
+    function getCleanClone() {
         var baseEl = document.documentElement.cloneNode(true);
         baseEl.querySelector('body').removeAttribute('spellcheck');
         var elsToRemove = baseEl.querySelectorAll('script, iframe, #document-controls, #github-link');
@@ -89,7 +90,53 @@
             }
         }
 
-        return baseEl.innerHTML;
+        return baseEl;
+    }
+
+    // Local asset = relative path (skip CDN/absolute/data URIs).
+    function isLocalAsset(url) {
+        return url && !/^(https?:)?\/\//.test(url) && url.slice(0, 5) !== 'data:';
+    }
+
+    function blobToDataURL(blob) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() { resolve(reader.result); };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    // Replace local <link rel="stylesheet"> with inline <style>. CDN links kept.
+    async function inlineStyles(root) {
+        var links = root.querySelectorAll('link[rel="stylesheet"]');
+        for (var i = 0; i < links.length; i++) {
+            var link = links[i];
+            var href = link.getAttribute('href');
+            if (!isLocalAsset(href)) continue;
+            try {
+                var css = await (await fetch(href)).text();
+                var style = document.createElement('style');
+                var media = link.getAttribute('media');
+                if (media) style.setAttribute('media', media);
+                style.textContent = css;
+                link.parentNode.replaceChild(style, link);
+            } catch (e) { /* keep the link if fetch fails */ }
+        }
+    }
+
+    // Embed local <img> sources as base64 data URIs so the file is portable.
+    async function inlineImages(root) {
+        var imgs = root.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            var img = imgs[i];
+            var src = img.getAttribute('src');
+            if (!isLocalAsset(src)) continue;
+            try {
+                var blob = await (await fetch(src)).blob();
+                img.setAttribute('src', await blobToDataURL(blob));
+            } catch (e) { /* keep the src if fetch fails */ }
+        }
     }
 
     function addPage() {
@@ -201,9 +248,18 @@
         document.body.removeChild(a);
     }
 
-    // Wrap the cleaned page contents in a full HTML document.
-    function buildFullDocument() {
-        return '<!DOCTYPE html>\n<html lang="en">\n' + getPageContents() + '\n</html>\n';
+    // Serialize a self-contained HTML document: styles and images inlined so
+    // the saved file renders standalone without the sibling asset files.
+    async function buildFullDocument() {
+        var baseEl = getCleanClone();
+        await inlineStyles(baseEl);
+        await inlineImages(baseEl);
+        var attrs = '';
+        for (var i = 0; i < baseEl.attributes.length; i++) {
+            var a = baseEl.attributes[i];
+            attrs += ' ' + a.name + (a.value ? '="' + a.value + '"' : '');
+        }
+        return '<!DOCTYPE html>\n<html' + attrs + '>\n' + baseEl.innerHTML + '\n</html>\n';
     }
 
     // Persisted file handle so repeated saves reuse the same target file.
@@ -212,26 +268,24 @@
     // Save the current editor state back into index.html. Uses the File
     // System Access API when available (localhost/https) to write the file
     // in place; otherwise falls back to a download named index.html.
-    function saveToIndex() {
-        var html = buildFullDocument();
+    async function saveToIndex() {
+        var html = await buildFullDocument();
         var fileName = getFileBase() === 'cover-letter' ? 'cover-letter.html' : 'index.html';
         if (window.showSaveFilePicker) {
-            (async function() {
-                try {
-                    if (!indexFileHandle) {
-                        indexFileHandle = await window.showSaveFilePicker({
-                            suggestedName: fileName,
-                            types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }]
-                        });
-                    }
-                    var writable = await indexFileHandle.createWritable();
-                    await writable.write(html);
-                    await writable.close();
-                } catch (err) {
-                    if (err && err.name === 'AbortError') return; // user cancelled
-                    downloadFile(html, fileName, 'text/html; charset=UTF-8');
+            try {
+                if (!indexFileHandle) {
+                    indexFileHandle = await window.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }]
+                    });
                 }
-            })();
+                var writable = await indexFileHandle.createWritable();
+                await writable.write(html);
+                await writable.close();
+            } catch (err) {
+                if (err && err.name === 'AbortError') return; // user cancelled
+                downloadFile(html, fileName, 'text/html; charset=UTF-8');
+            }
         } else {
             downloadFile(html, fileName, 'text/html; charset=UTF-8');
         }
