@@ -211,6 +211,7 @@ li .fa, li .fab {
     height: 1.4in;
     border-radius: 3px;
     object-fit: cover;
+    object-position: 62% 20%;
     display: block;
     background-color: #f5f5f5;
     border: 1px solid rgba(45, 45, 45, 0.1618);
