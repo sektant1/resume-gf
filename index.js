@@ -140,7 +140,7 @@
         var navHref = isCover ? 'index.html' : 'cover-letter.html';
         var navLabel = isCover ? 'Resume' : 'Cover Letter';
         var navBtn = IS_DEPLOY ? '' :
-            `<a role="button" href="${navHref}" title="Go to ${navLabel}">${navLabel}</a>`;
+            `<a role="button" href="${navHref}" id="nav-link" title="Go to ${navLabel}">${navLabel}</a>`;
         var clearBtn = IS_DEPLOY ? '' :
             '<button data-action="clear" title="Remove saved draft">Clear draft</button>';
         var githubLink = IS_DEPLOY ? '' :
@@ -171,6 +171,15 @@
             if (buttons[i].dataset.action in actions) {
                 buttons[i].addEventListener('click', actions[buttons[i].dataset.action]);
             }
+        }
+        // designMode makes the whole document editable, which swallows link
+        // clicks; navigate explicitly so the page-swap button works.
+        var navLink = docControls.querySelector('#nav-link');
+        if (navLink) {
+            navLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = navLink.getAttribute('href');
+            });
         }
         downloadLink = docControls.querySelector('#download-link');
         if (!USE_CONTENTEDITABLE && !IS_DEPLOY) {
